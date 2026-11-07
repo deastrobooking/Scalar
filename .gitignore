@@ -1,0 +1,12 @@
+build/
+build-*/
+firmware/build/
+firmware/sdkconfig
+firmware/sdkconfig.old
+firmware/managed_components/
+firmware/dependencies.lock
+*.wav
+.DS_Store
+.vscode/
+.cache/
+compile_commands.json

@@ -1,0 +1,47 @@
+#pragma once
+#include "FMOperator.h"
+#include <array>
+
+// Routing descriptor for one algorithm
+// opModulators[i] is a bitmask of which operators modulate operator i
+// carriers is a bitmask of operators whose output goes to the final mix
+struct AlgorithmDef
+{
+    uint16_t opModulators[10]; // bit j set → op j modulates op i
+    uint16_t carriers;         // bit i set → op i is a carrier (output)
+};
+
+class FMAlgorithm
+{
+public:
+    static constexpr int kNumOperators  = 10;
+    static constexpr int kNumAlgorithms = 40; // 32 DX7-style + 8 extended
+
+    void prepare(double sampleRate);
+    void setAlgorithm(int index);
+    void setAlgorithmMorph(float morph);
+    void setNoteFrequency(float hz);
+    void setVelocity(float v);
+    void setMidiNote(int note);
+
+    FMOperator& getOperator(int i) { return ops[(size_t) juce::jlimit(0, kNumOperators - 1, i)]; }
+
+    void noteOn();
+    void noteOff();
+    void reset();
+
+    // Process one sample and return carrier sum (normalised)
+    float processSample();
+    void advanceEnvelopes();
+
+    static const AlgorithmDef& getAlgorithmDef(int index);
+
+private:
+    std::array<FMOperator, kNumOperators> ops;
+    std::array<float, kNumOperators> lastOutputs {};
+    int algorithmIndex = 0;
+    float algorithmMorph = 0.f;
+
+    static AlgorithmDef buildAlgorithms();
+    static const AlgorithmDef kAlgorithms[kNumAlgorithms];
+};
