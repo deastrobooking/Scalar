@@ -37,7 +37,10 @@ private:
     float attackCoeff  = 0.f;
     float decayCoeff   = 0.f;
     float releaseCoeff = 0.f;
+    int attackSamples = 1, decaySamples = 1, releaseSamples = 1, remaining = 0;
+    float coefficient = 0.f, target = 0.f, destination = 0.f, linearStep = 0.f;
 
     void recalcCoeffs();
-    static float calcCoeff(float timeSec, double sampleRate);
+    void enterStage(Stage next);
+    static float calcCoeff(int samples, float ratio);
 };

@@ -7,7 +7,7 @@ class WavetableOsc
 {
 public:
     static constexpr int kTableSize   = 2048;
-    static constexpr int kNumMipLevels = 10;   // one per octave band
+    static constexpr int kNumMipLevels = 11;   // includes the one-harmonic top band
     static constexpr int kMaxUnison    = 8;
 
     enum class WarpMode : int
@@ -50,7 +50,7 @@ public:
         bool  retrigger = true;
     };
 
-    void prepare(double sampleRate);
+    void prepare(double sampleRate, void (*yieldDuringPrepare)() = nullptr);
     void setFrequency(float hz);
     void setParams(const Params& params);
     void noteOn();
@@ -59,11 +59,12 @@ public:
     void setTablePosition(int tableIndex, float position);
 
     // Add a waveform (single-cycle float buffer, any size) — mip levels auto-built
-    int addTable(juce::String name, const float* samples, int numSamples);
+    int addTable(juce::String name, const float* samples, int numSamples,
+                 void (*yieldDuringPrepare)() = nullptr);
     int addSineTable();
 
     // Populate the oscillator with the built-in waveform bank (called automatically by prepare)
-    void buildStandardBank();
+    void buildStandardBank(void (*yieldDuringPrepare)() = nullptr);
 
     int getNumTables() const { return (int)tables.size(); }
     juce::String getTableName(int idx) const;
@@ -83,12 +84,15 @@ private:
     int    mipLevel = 0;
     float  morphT = 0.f;   // 0 = table A, 1 = table B
     float  tableScanPosition = 0.f;
+    float currentTablePosition = 0.f, currentWarpAmount = 0.f;
+    juce::SmoothedValue<float> scanSmooth, warpSmooth;
     Params params;
     juce::uint32 rngState = 0x6d2b79f5u;
 
     std::vector<Table> tables;
 
     int selectMipLevel(float frequency) const;
+    void updateMipLevel();
     float cubicInterp(const float* table, float position) const;
     float sampleAt(float phase, float scanOffset) const;
     float warpPhase(float phase) const;

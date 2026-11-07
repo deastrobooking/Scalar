@@ -1,0 +1,19 @@
+bridge first=1 after_two_publishes=1 observed_level=0.30 expected=0.30
+memory wavetable sizeof=184 heap_retained=1352040 peak_delta=1401192
+memory terrain sizeof=304 heap_retained=525672 peak_delta=657056
+memory granular sizeof=6200 heap_retained=524456 peak_delta=524456
+memory voice_after_default_source_cached sizeof=78704 heap_retained=1877712 peak_delta=1926864
+sizeof SingleFilter=17176 DualFilter=68880 VoiceParams=528 SampleData=524428
+engine_switch peak_before=0.638067 peak_after=0.799949 active=1
+continuous_pitch requested=432 derived_note=69 measured_hz=432
+adsr attack_requested=1.0 actual_sec=1.000000 samples=48000
+fm attack_requested=1.0 actual_sec=1.000000 samples=48000
+wavetable default_warpMode macro_amount_0_vs_1_max_diff=0
+terrain512 heap_retained=0 peak_delta=0 (excludes input grid)
+render VA      allocations=0 peak=0.61785
+render WT      allocations=0 peak=0.79381
+render FM      allocations=0 peak=1.05213
+render 3D      allocations=0 peak=0.77232
+render TERRAIN allocations=0 peak=0.67392
+render GRAN    allocations=0 peak=0.23120
+filter_sweep cases=837 nonfinite_cases=0 max_peak=1.5

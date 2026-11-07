@@ -67,10 +67,16 @@ static void fillAdditive(float* buf, int N, const std::initializer_list<std::pai
 // WavetableOsc
 //==============================================================================
 
-void WavetableOsc::prepare(double sampleRate)
+void WavetableOsc::prepare(double sampleRate, void (*yieldDuringPrepare)())
 {
     sr = sampleRate;
-    if (tables.empty()) buildStandardBank();
+    scanSmooth.reset(sr, 0.005);
+    scanSmooth.setCurrentAndTargetValue(tableScanPosition);
+    warpSmooth.reset(sr, 0.005);
+    warpSmooth.setCurrentAndTargetValue(params.warpAmount);
+    currentTablePosition = tableScanPosition;
+    currentWarpAmount = params.warpAmount;
+    if (tables.empty()) buildStandardBank(yieldDuringPrepare);
     setFrequency(freq);
     reset();
 }
@@ -92,9 +98,9 @@ void WavetableOsc::noteOn()
 
 void WavetableOsc::setFrequency(float hz)
 {
-    freq = juce::jlimit(20.f, (float)(sr * 0.49), hz);
+    freq = juce::jlimit(1.f, (float)(sr * 0.49), hz);
     phaseInc = freq / (float)sr;
-    mipLevel = selectMipLevel(freq);
+    updateMipLevel();
 }
 
 void WavetableOsc::setParams(const Params& p)
@@ -110,6 +116,8 @@ void WavetableOsc::setParams(const Params& p)
     params.phaseOffset   = wrap01(params.phaseOffset);
     params.randomPhase   = juce::jlimit(0.f, 1.f, params.randomPhase);
     params.pdBreakpoint  = juce::jlimit(0.f, 1.f, params.pdBreakpoint);
+    warpSmooth.setTargetValue(params.warpAmount);
+    updateMipLevel();
 }
 
 void WavetableOsc::setTablePosition(int tableIndex, float position)
@@ -121,6 +129,7 @@ void WavetableOsc::setTablePosition(int tableIndex, float position)
     float scaledPos = (float)baseTable + juce::jlimit(0.f, 1.f, position);
     scaledPos = juce::jlimit(0.f, (float)(numTables - 1), scaledPos);
     tableScanPosition = scaledPos;
+    scanSmooth.setTargetValue(scaledPos);
     tableA = juce::jlimit(0, numTables - 1, (int)scaledPos);
     tableB = juce::jlimit(0, numTables - 1, tableA + 1);
     morphT = scaledPos - (float)tableA;
@@ -144,40 +153,41 @@ int WavetableOsc::addSineTable()
 // A compact factory bank for wavetable scanning and real-time warp modes.
 // The WT TABLE parameter selects which one, and WT POS morphs to the next.
 //==============================================================================
-void WavetableOsc::buildStandardBank()
+void WavetableOsc::buildStandardBank(void (*yieldDuringPrepare)())
 {
     tables.clear();
+    tables.reserve(15); // factory bank: avoid transient full-bank copies on growth
     std::vector<float> buf((size_t)kTableSize);
 
     // 0 — Sine
     fillSine(buf.data(), kTableSize);
-    addTable("Sine", buf.data(), kTableSize);
+    addTable("Sine", buf.data(), kTableSize, yieldDuringPrepare);
 
     // 1 — Triangle
     fillTriangle(buf.data(), kTableSize);
-    addTable("Triangle", buf.data(), kTableSize);
+    addTable("Triangle", buf.data(), kTableSize, yieldDuringPrepare);
 
     // 2 — Sawtooth
     fillSaw(buf.data(), kTableSize);
-    addTable("Saw", buf.data(), kTableSize);
+    addTable("Saw", buf.data(), kTableSize, yieldDuringPrepare);
 
     // 3 — Square (50% duty)
     fillSquare(buf.data(), kTableSize);
-    addTable("Square", buf.data(), kTableSize);
+    addTable("Square", buf.data(), kTableSize, yieldDuringPrepare);
 
     // 4 — Pulse (25% duty)
     fillPulse(buf.data(), kTableSize, 0.25f);
-    addTable("Pulse", buf.data(), kTableSize);
+    addTable("Pulse", buf.data(), kTableSize, yieldDuringPrepare);
 
     // 5 — Half-rectified sine: soft, nasal character from even harmonics
     for (int i = 0; i < kTableSize; ++i)
         buf[(size_t)i] = std::max(0.f, std::sin(juce::MathConstants<float>::twoPi * (float)i / (float)kTableSize));
-    addTable("Half Sine", buf.data(), kTableSize);
+    addTable("Half Sine", buf.data(), kTableSize, yieldDuringPrepare);
 
     // 6 — Full-rectified sine |sin|: buzzy, reed-like; only even harmonics
     for (int i = 0; i < kTableSize; ++i)
         buf[(size_t)i] = std::abs(std::sin(juce::MathConstants<float>::twoPi * (float)i / (float)kTableSize));
-    addTable("Abs Sine", buf.data(), kTableSize);
+    addTable("Abs Sine", buf.data(), kTableSize, yieldDuringPrepare);
 
     // 7 — Sine³: sub-heavy, smooth saturation character
     for (int i = 0; i < kTableSize; ++i)
@@ -185,23 +195,23 @@ void WavetableOsc::buildStandardBank()
         float s = std::sin(juce::MathConstants<float>::twoPi * (float)i / (float)kTableSize);
         buf[(size_t)i] = s * s * s;
     }
-    addTable("Sine Cube", buf.data(), kTableSize);
+    addTable("Sine Cube", buf.data(), kTableSize, yieldDuringPrepare);
 
     fillAdditive(buf.data(), kTableSize, {
         { 1.f, 1.0f }, { 2.f, 0.15f }, { 3.f, 0.9f }, { 5.f, 0.6f }, { 7.f, 0.35f }, { 9.f, 0.2f } });
-    addTable("Hollow Odd", buf.data(), kTableSize);
+    addTable("Hollow Odd", buf.data(), kTableSize, yieldDuringPrepare);
 
     fillAdditive(buf.data(), kTableSize, {
         { 1.f, 0.65f }, { 2.f, 1.0f }, { 4.f, 0.55f }, { 8.f, 0.32f }, { 12.f, 0.18f } });
-    addTable("Even Glass", buf.data(), kTableSize);
+    addTable("Even Glass", buf.data(), kTableSize, yieldDuringPrepare);
 
     fillAdditive(buf.data(), kTableSize, {
         { 1.f, 0.45f }, { 2.f, 1.0f }, { 3.f, 0.35f }, { 5.f, 0.8f }, { 8.f, 0.25f }, { 13.f, 0.45f } });
-    addTable("Vocal A", buf.data(), kTableSize);
+    addTable("Vocal A", buf.data(), kTableSize, yieldDuringPrepare);
 
     fillAdditive(buf.data(), kTableSize, {
         { 1.f, 0.35f }, { 3.f, 0.28f }, { 7.f, 1.0f }, { 11.f, 0.55f }, { 17.f, 0.32f }, { 23.f, 0.2f } });
-    addTable("Metallic", buf.data(), kTableSize);
+    addTable("Metallic", buf.data(), kTableSize, yieldDuringPrepare);
 
     for (int i = 0; i < kTableSize; ++i)
     {
@@ -210,7 +220,7 @@ void WavetableOsc::buildStandardBank()
         buf[(size_t)i] = 2.f * syncPh - 1.f;
     }
     normaliseTable(buf.data(), kTableSize);
-    addTable("Sync Saw", buf.data(), kTableSize);
+    addTable("Sync Saw", buf.data(), kTableSize, yieldDuringPrepare);
 
     for (int i = 0; i < kTableSize; ++i)
     {
@@ -220,7 +230,7 @@ void WavetableOsc::buildStandardBank()
         buf[(size_t)i] = std::tanh(2.4f * carrier + 0.9f * shaper);
     }
     normaliseTable(buf.data(), kTableSize);
-    addTable("Reso Fold", buf.data(), kTableSize);
+    addTable("Reso Fold", buf.data(), kTableSize, yieldDuringPrepare);
 
     juce::Random noise(0x710710);
     for (int i = 0; i < kTableSize; ++i)
@@ -230,10 +240,11 @@ void WavetableOsc::buildStandardBank()
         buf[(size_t)i] = 0.55f * n + 0.45f * std::sin(juce::MathConstants<float>::twoPi * 17.f * ph);
     }
     normaliseTable(buf.data(), kTableSize);
-    addTable("Noisy Digital", buf.data(), kTableSize);
+    addTable("Noisy Digital", buf.data(), kTableSize, yieldDuringPrepare);
 }
 
-int WavetableOsc::addTable(juce::String name, const float* samples, int numSamples)
+int WavetableOsc::addTable(juce::String name, const float* samples, int numSamples,
+                          void (*yieldDuringPrepare)())
 {
     if (samples == nullptr || numSamples < 2)
         return -1;
@@ -247,6 +258,7 @@ int WavetableOsc::addTable(juce::String name, const float* samples, int numSampl
         int harmonicsLimit = kTableSize / 2 >> mip;
         harmonicsLimit = juce::jmax(1, harmonicsLimit);
         buildMipLevel(samples, numSamples, t.data[mip], kTableSize, harmonicsLimit);
+        if (yieldDuringPrepare) yieldDuringPrepare();
     }
     return (int)tables.size() - 1;
 }
@@ -312,6 +324,22 @@ int WavetableOsc::selectMipLevel(float frequency) const
     return mip;
 }
 
+void WavetableOsc::updateMipLevel()
+{
+    float bandwidth = 1.f;
+    switch (params.warpMode)
+    {
+        case WarpMode::BendPlus:
+        case WarpMode::BendMinus: bandwidth = 1.f + 8.f * params.warpAmount; break;
+        case WarpMode::BendBoth: bandwidth = 1.f + 7.f * params.warpAmount; break;
+        case WarpMode::Sync:
+        case WarpMode::WindowSync: bandwidth = 1.f + 8.f * params.warpAmount; break;
+        case WarpMode::Formant: bandwidth = 1.f + 12.f * params.warpAmount; break;
+        default: break; // nonlinear output warps require a separate aliasing budget
+    }
+    mipLevel = selectMipLevel(freq * std::exp2(params.detune / 12.f) * bandwidth);
+}
+
 float WavetableOsc::cubicInterp(const float* table, float position) const
 {
     int   n0 = (int)position;
@@ -355,7 +383,7 @@ float WavetableOsc::phaseDistort(float ph, float breakpoint) noexcept
 
 float WavetableOsc::warpPhase(float ph) const
 {
-    const float a = params.warpAmount;
+    const float a = currentWarpAmount;
     if (a <= 1.0e-5f)
         return ph;
 
@@ -443,7 +471,7 @@ float WavetableOsc::warpPhase(float ph) const
 
 float WavetableOsc::warpWindow(float carrierPhase, float warpedPhase) const
 {
-    const float a = params.warpAmount;
+    const float a = currentWarpAmount;
     if (a <= 1.0e-5f)
         return 1.f;
 
@@ -478,7 +506,7 @@ float WavetableOsc::warpWindow(float carrierPhase, float warpedPhase) const
 
 float WavetableOsc::warpSample(float sample) const
 {
-    const float a = params.warpAmount;
+    const float a = currentWarpAmount;
     if (a <= 1.0e-5f)
         return sample;
 
@@ -523,7 +551,7 @@ float WavetableOsc::sampleAt(float ph, float scanOffset) const
     if (tables.empty()) return 0.f;
 
     const int numTables = (int)tables.size();
-    float scan = juce::jlimit(0.f, (float)(numTables - 1), tableScanPosition + scanOffset);
+    float scan = juce::jlimit(0.f, (float)(numTables - 1), currentTablePosition + scanOffset);
     int localA = juce::jlimit(0, numTables - 1, (int)scan);
     int localB = juce::jlimit(0, numTables - 1, localA + 1);
     float localT = scan - (float)localA;
@@ -540,6 +568,8 @@ float WavetableOsc::sampleAt(float ph, float scanOffset) const
 
 std::pair<float, float> WavetableOsc::processSample()
 {
+    currentTablePosition = scanSmooth.getNextValue();
+    currentWarpAmount = warpSmooth.getNextValue();
     if (tables.empty()) return { 0.f, 0.f };
 
     const int n = juce::jlimit(1, kMaxUnison, params.unison);

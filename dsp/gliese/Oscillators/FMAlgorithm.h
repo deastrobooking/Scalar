@@ -32,6 +32,7 @@ public:
 
     // Process one sample and return carrier sum (normalised)
     float processSample();
+    // Only for skipped oscillator samples; processSample() already advances them.
     void advanceEnvelopes();
 
     static const AlgorithmDef& getAlgorithmDef(int index);

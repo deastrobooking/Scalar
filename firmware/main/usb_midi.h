@@ -1,3 +1,2 @@
 #pragma once
-
-void usb_midi_start();
+bool usb_midi_start();

@@ -1,0 +1,31 @@
+name: Build and test
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build --parallel
+      - run: ctest --test-dir build --output-on-failure
+      - name: Sanitizers
+        run: |
+          cmake -S . -B build-sanitized -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+          cmake --build build-sanitized --parallel
+          ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 \
+            ctest --test-dir build-sanitized --output-on-failure
+  esp32s3:
+    runs-on: ubuntu-latest
+    container: espressif/idf:v5.2.3
+    steps:
+      - uses: actions/checkout@v4
+      - name: ESP32-S3 firmware and size check
+        shell: bash
+        run: |
+          . "$IDF_PATH/export.sh"
+          python -m pip install -r firmware/requirements-build.txt
+          idf.py -C firmware -DIDF_TARGET=esp32s3 build size

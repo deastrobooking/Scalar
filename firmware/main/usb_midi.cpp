@@ -1,88 +1,51 @@
-// usb_midi.cpp — class-compliant USB MIDI device via esp_tinyusb.
-//
-// Note on/off and pitch bend drive the voice through the ParamBridge; MIDI
-// takes priority over the CV/gate inputs while notes are held.
-
 #include "usb_midi.h"
-#include "param_bridge.h"
-
+#include "control_task.h"
 #include "esp_log.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
+#include "esp_mac.h"
 #include "tinyusb.h"
 #include "tusb.h"
-
-#include <cmath>
-
-static const char* TAG = "usb_midi";
+#include <cstdio>
 
 namespace
 {
-int activeNote = -1;
-float bendSemis = 0.f;
+constexpr const char* TAG = "usb_midi";
+static_assert(CFG_TUD_MIDI == 1, "Scalar descriptors define exactly one MIDI interface");
+constexpr uint8_t configuration[] = {
+    TUD_CONFIG_DESCRIPTOR(1, 2, 0, TUD_CONFIG_DESC_LEN + TUD_MIDI_DESC_LEN, 0, 100),
+    TUD_MIDI_DESCRIPTOR(0, 4, 0x01, 0x81, 64),
+};
+const char language[] = {0x09, 0x04};
+char serial[13] {};
+const char* strings[] = {language, "Scalar", "Scalar USB MIDI", serial, "Scalar MIDI"};
 
-void applyPitch()
-{
-    if (activeNote < 0)
-        return;
-    const float hz = 440.f * std::exp2((static_cast<float>(activeNote) - 69.f + bendSemis) / 12.f);
-    scalar::paramBridge().pitchHz.store(hz, std::memory_order_relaxed);
 }
 
-void handlePacket(const uint8_t packet[4])
-{
-    const uint8_t status = packet[1] & 0xF0;
-    auto& bridge = scalar::paramBridge();
-
-    switch (status)
-    {
-        case 0x90: // note on
-            if (packet[3] > 0)
-            {
-                activeNote = packet[2];
-                bridge.velocity.store(static_cast<float>(packet[3]) / 127.f,
-                                      std::memory_order_relaxed);
-                applyPitch();
-                bridge.gate.store(true, std::memory_order_relaxed);
-                break;
-            }
-            [[fallthrough]]; // velocity 0 == note off
-        case 0x80: // note off
-            if (packet[2] == activeNote)
-            {
-                activeNote = -1;
-                bridge.gate.store(false, std::memory_order_relaxed);
-            }
-            break;
-        case 0xE0: // pitch bend, ±2 semitones
-        {
-            const int value = packet[2] | (packet[3] << 7);
-            bendSemis = (static_cast<float>(value) - 8192.f) / 8192.f * 2.f;
-            applyPitch();
-            break;
-        }
-        default:
-            break;
-    }
-}
-
-void midiLoop(void*)
+// Runs in TinyUSB's task, immediately after packet receipt. Avoid an extra
+// polling tick that would collapse arrival times of short MIDI notes.
+extern "C" void tud_midi_rx_cb(uint8_t)
 {
     uint8_t packet[4];
-    for (;;)
-    {
-        while (tud_midi_available())
-            if (tud_midi_packet_read(packet))
-                handlePacket(packet);
-        vTaskDelay(pdMS_TO_TICKS(1));
-    }
+    // RX FIFO is finite and filled by this same USB task; drain every packet.
+    while (tud_midi_packet_read(packet)) control_post_midi(packet);
 }
-} // namespace
+extern "C" void tud_umount_cb() { control_midi_disconnect(); }
+extern "C" void tud_suspend_cb(bool) { control_midi_disconnect(); }
 
-void usb_midi_start()
+bool usb_midi_start()
 {
-    const tinyusb_config_t tusbCfg = {}; // default descriptors expose MIDI
-    ESP_ERROR_CHECK(tinyusb_driver_install(&tusbCfg));
-    xTaskCreatePinnedToCore(midiLoop, "usb_midi", 4096, nullptr, 5, nullptr, 0);
-    ESP_LOGI(TAG, "USB MIDI ready");
+    uint8_t mac[6];
+    if (esp_read_mac(mac, ESP_MAC_BASE) != ESP_OK) return false;
+    std::snprintf(serial, sizeof(serial), "%02X%02X%02X%02X%02X%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    tinyusb_config_t config {};
+    config.string_descriptor = strings;
+    config.string_descriptor_count = sizeof(strings) / sizeof(strings[0]);
+    config.configuration_descriptor = configuration;
+    const auto result = tinyusb_driver_install(&config);
+    if (result != ESP_OK)
+    {
+        ESP_LOGW(TAG, "USB unavailable (%s); CV/audio remain active", esp_err_to_name(result));
+        return false;
+    }
+    ESP_LOGI(TAG, "USB MIDI ready (channel 1)");
+    return true;
 }

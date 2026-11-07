@@ -49,6 +49,7 @@ public:
     void setMidiNote(int note) { midiNote = note; updateDerived(); }
 
     float processSample(float modInput);
+    // Only for skipped oscillator samples; processSample() advances the envelope.
     void advanceEnvelope() { env.processSample(); }
 
     void noteOn();

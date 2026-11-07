@@ -28,7 +28,7 @@ void Osc3D::setParams(const Params& p)
 
 void Osc3D::setFrequency(float hz)
 {
-    freq = juce::jlimit(20.f, (float)(sr * 0.49), hz);
+    freq = juce::jlimit(1.f, (float)(sr * 0.49), hz);
     updateDerived();
 }
 

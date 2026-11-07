@@ -26,11 +26,11 @@ float clampFinite(float x)
 }
 }
 
-void GranularOsc::prepare(double sampleRate)
+void GranularOsc::prepare(double sampleRate, void (*yieldDuringPrepare)())
 {
     sr = sampleRate > 0.0 ? sampleRate : 48000.0;
     if (source == nullptr)
-        source = generateDefaultSource();
+        source = generateDefaultSource(yieldDuringPrepare);
     if (sourceB == nullptr)
         sourceB = source;
     reset();
@@ -77,13 +77,16 @@ void GranularOsc::noteOff()
 
 void GranularOsc::setFrequency(float hz)
 {
-    frequency = juce::jlimit(1.f, 20000.f, hz);
+    const float next = juce::jlimit(1.f, 20000.f, hz);
+    if (next != frequency) bodyDirty = true;
+    frequency = next;
 }
 
 void GranularOsc::setParams(const Params& newParams)
 {
     const auto previousTriggerMode = params.triggerMode;
     const float previousPosition = params.position;
+    const auto previous = params;
 
     params = newParams;
     if ((int) params.triggerMode < 0 || (int) params.triggerMode >= (int) TriggerMode::NumModes)
@@ -125,7 +128,12 @@ void GranularOsc::setParams(const Params& newParams)
     params.bodyMix = juce::jlimit(0.f, 1.f, params.bodyMix);
     params.bodySpread = juce::jlimit(0.f, 1.f, params.bodySpread);
     params.bodyModes = juce::jlimit(4, kMaxBodyModes, params.bodyModes);
-    bodyDirty = true;
+    bodyDirty = bodyDirty || previous.bodyType != params.bodyType
+        || previous.bodyRootSemis != params.bodyRootSemis || previous.bodySize != params.bodySize
+        || previous.bodyDecay != params.bodyDecay || previous.bodyDamping != params.bodyDamping
+        || previous.bodyBrightness != params.bodyBrightness || previous.bodyInharm != params.bodyInharm
+        || previous.bodySpread != params.bodySpread || previous.bodyModes != params.bodyModes
+        || (previous.bodyMix <= 0.0001f && params.bodyMix > 0.0001f);
 
     const float positionDelta = wrappedDelta(params.position, previousPosition);
     if (std::abs(positionDelta) > 0.000001f)
@@ -448,9 +456,9 @@ GranularOsc::VisualSnapshot GranularOsc::getVisualSnapshot() const noexcept
     return snapshot;
 }
 
-std::shared_ptr<const GranularOsc::SampleData> GranularOsc::generateDefaultSource()
+std::shared_ptr<const GranularOsc::SampleData> GranularOsc::generateDefaultSource(void (*yieldDuringPrepare)())
 {
-    static const std::shared_ptr<const SampleData> result = []
+    static const std::shared_ptr<const SampleData> result = [yieldDuringPrepare]
     {
         auto generated = std::make_shared<SampleData>();
         generated->transientMarkers[0] = 0.f;
@@ -464,6 +472,7 @@ std::shared_ptr<const GranularOsc::SampleData> GranularOsc::generateDefaultSourc
             const float oddBias = 0.35f + 0.55f * std::sin(juce::MathConstants<float>::pi * morph);
             const float drive = 0.95f + 1.8f * morph;
             const int maxHarm = juce::jlimit(3, 40, 4 + juce::roundToInt(34.f * morph));
+            if (yieldDuringPrepare) yieldDuringPrepare();
 
             for (int i = 0; i < kFrameSamples; ++i)
             {

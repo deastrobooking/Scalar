@@ -39,6 +39,7 @@ struct VoiceParams
     Osc3D::Params        osc3d {};
     TerrainOsc::Params   terrain {};
     WavetableOsc::Params wavetable {};
+    float wavetablePosition = 0.f; // normalized scan across the entire bank
     VAOscillator::Params va {};
     GranularOsc::Params  granular {};
 
@@ -57,7 +58,8 @@ struct VoiceParams
 class ScalarVoice
 {
 public:
-    void prepare(double sampleRate);
+    // Optional cooperative startup hook, never invoked by the render path.
+    void prepare(double sampleRate, void (*yieldDuringPrepare)() = nullptr);
     void reset();
 
     // Control-rate updates; cheap when values are unchanged.
@@ -67,6 +69,8 @@ public:
     void setFrequency(float hz);
 
     void noteOn(int midiNote, float velocity);
+    // Exact pitch and key identity are independent (CV and pitch-bent note starts).
+    void noteOn(int midiNote, float velocity, float frequencyHz);
     void noteOff();
     bool isActive() const noexcept { return ampEnv.isActive(); }
 
@@ -96,8 +100,14 @@ private:
     float currentHz = 440.f;
     int   currentNote = 69;
     float currentVelocity = 1.f;
+    bool gateHeld = false;
+    int transitionRemaining = 0;
+    static constexpr int kTransitionSamples = 128;
+    std::pair<float, float> lastOutput {}, transitionFrom {};
 
     std::pair<float, float> renderEngine();
+    void resetEngine();
+    void startEngine();
 };
 
 } // namespace scalar

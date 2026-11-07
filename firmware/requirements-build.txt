@@ -1,0 +1,5 @@
+# Validated SDK Python tooling; lockfile format 2 requires component manager 2.x.
+idf-component-manager==2.5.2
+# Keep importlib.metadata lookup compatible with ESP-IDF 5.2 / Python 3.9.
+ruamel.yaml==0.18.6
+ruamel.yaml.clib==0.2.8

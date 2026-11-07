@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 
 # Scalar firmware — ESP32-S3 Eurorack full-voice module.
-# Build with ESP-IDF >= 5.2:
+# Validated with ESP-IDF 5.2.3 (5.2.x profile):
 #   idf.py set-target esp32s3
 #   idf.py build flash monitor
 

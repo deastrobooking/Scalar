@@ -58,6 +58,9 @@ public:
 
     // Load a raw heightmap grid, values in -1..1 (row-major, w*h floats).
     bool setHeightmap(const float* data, int newWidth, int newHeight);
+    // Embedded profile: six planes plus mipmaps and build scratch stay < 1 MiB.
+    static constexpr int kMaxImportedSize = 128;
+    static constexpr size_t kHeightmapBuildBudget = 1024 * 1024;
     void resetHeightmap();
     void shareTerrainFrom(const TerrainOsc& other) noexcept { sharedTerrain = other.sharedTerrain; }
 
@@ -66,7 +69,6 @@ public:
 
 private:
     static constexpr int kDefaultSize = 128;
-    static constexpr int kMaxImportedSize = 512;
     static constexpr int kBlurPassCount = 5;
 
     double sr = 48000.0;

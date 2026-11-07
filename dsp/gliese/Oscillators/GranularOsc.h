@@ -3,6 +3,7 @@
 #include "JuceShim.h"
 #include <array>
 #include <memory>
+#include <atomic>
 
 class GranularOsc
 {
@@ -117,7 +118,7 @@ public:
         std::array<bool, kMaxVisualGrains> reverse {};
     };
 
-    void prepare(double sampleRate);
+    void prepare(double sampleRate, void (*yieldDuringPrepare)() = nullptr);
     void reset();
     void noteOn(int midiNote, float velocity);
     void noteOff();
@@ -191,7 +192,7 @@ private:
     std::array<std::atomic<bool>, kMaxVisualGrains> visualReverse {};
     bool bodyDirty = true;
 
-    static std::shared_ptr<const SampleData> generateDefaultSource();
+    static std::shared_ptr<const SampleData> generateDefaultSource(void (*yieldDuringPrepare)() = nullptr);
     void triggerGrain();
     void publishVisualSnapshot() noexcept;
     static float readSource(const std::shared_ptr<const SampleData>& sample,

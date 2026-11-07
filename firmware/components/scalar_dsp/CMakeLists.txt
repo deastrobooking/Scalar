@@ -20,5 +20,5 @@ idf_component_register(
         ${SCALAR_DSP_ROOT}
 )
 
-target_compile_options(${COMPONENT_LIB} PRIVATE -O2 -ffast-math)
+target_compile_options(${COMPONENT_LIB} PRIVATE -O2 -fno-fast-math)
 target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_20)

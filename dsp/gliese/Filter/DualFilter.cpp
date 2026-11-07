@@ -364,7 +364,8 @@ std::pair<float, float> DualFilter::processSample(float inL, float inR,
     float evA = envA.processSample();
     float evB = envB.processSample();
 
-    float outL, outR;
+    // Invalid enum values fall back to bypass rather than uninitialized audio.
+    float outL = inL, outR = inR;
     switch (routing)
     {
         case FilterRouting::Series:

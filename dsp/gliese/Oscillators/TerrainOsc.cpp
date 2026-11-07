@@ -68,7 +68,7 @@ float TerrainOsc::processSample()
     const int activeWidth = sharedTerrain ? sharedTerrain->width : width;
     const int activeHeight = sharedTerrain ? sharedTerrain->height : height;
     const int mipIndex = chooseMipLevel();
-    const auto* mip = !activeMips.empty() ? &activeMips[(size_t)mipIndex] : nullptr;
+    const auto* mip = mipIndex > 0 ? &activeMips[(size_t)mipIndex - 1] : nullptr;
     const auto& rawTerrain = mip != nullptr ? mip->terrain : activeTerrain;
     const int blurIndex = smoothingBlurIndex();
     const auto& blurTerrain = mip != nullptr
@@ -162,6 +162,10 @@ bool TerrainOsc::setHeightmap(const float* data, int newWidth, int newHeight)
 {
     if (data == nullptr || newWidth <= 1 || newHeight <= 1
         || newWidth > kMaxImportedSize || newHeight > kMaxImportedSize)
+        return false;
+
+    // Conservative bound includes base/blur planes, scratch, and all smaller levels.
+    if (size_t(newWidth) * size_t(newHeight) * sizeof(float) * 12 > kHeightmapBuildBudget)
         return false;
 
     sharedTerrain.reset();
@@ -264,16 +268,6 @@ void TerrainOsc::rebuildMipLevels()
     if (terrain.empty() || width <= 1 || height <= 1)
         return;
 
-    MipLevel base;
-    base.width = width;
-    base.height = height;
-    base.terrain = terrain;
-    for (int i = 0; i < kBlurPassCount; ++i)
-        base.blurredTerrain[(size_t) i] = blurredTerrain[(size_t) i].size() == terrain.size()
-            ? blurredTerrain[(size_t) i]
-            : terrain;
-    mipLevels.push_back(std::move(base));
-
     auto downsample = [](const std::vector<float>& src, int srcW, int srcH, int dstW, int dstH)
     {
         std::vector<float> dst((size_t)dstW * (size_t)dstH, 0.f);
@@ -299,21 +293,24 @@ void TerrainOsc::rebuildMipLevels()
         return dst;
     };
 
-    while (mipLevels.size() < 9)
+    // Level zero already lives in terrain/blurredTerrain; never duplicate it.
+    while (mipLevels.size() < 8)
     {
-        const auto& prev = mipLevels.back();
-        const int nextW = juce::jmax(2, prev.width / 2);
-        const int nextH = juce::jmax(2, prev.height / 2);
-        if (nextW == prev.width && nextH == prev.height)
+        const int prevW = mipLevels.empty() ? width : mipLevels.back().width;
+        const int prevH = mipLevels.empty() ? height : mipLevels.back().height;
+        const auto& prevTerrain = mipLevels.empty() ? terrain : mipLevels.back().terrain;
+        const auto& prevBlurred = mipLevels.empty() ? blurredTerrain : mipLevels.back().blurredTerrain;
+        const int nextW = juce::jmax(2, prevW / 2);
+        const int nextH = juce::jmax(2, prevH / 2);
+        if (nextW == prevW && nextH == prevH)
             break;
 
         MipLevel next;
         next.width = nextW;
         next.height = nextH;
-        next.terrain = downsample(prev.terrain, prev.width, prev.height, nextW, nextH);
+        next.terrain = downsample(prevTerrain, prevW, prevH, nextW, nextH);
         for (int i = 0; i < kBlurPassCount; ++i)
-            next.blurredTerrain[(size_t) i] = downsample(prev.blurredTerrain[(size_t) i],
-                                                         prev.width, prev.height, nextW, nextH);
+            next.blurredTerrain[(size_t) i] = downsample(prevBlurred[(size_t) i], prevW, prevH, nextW, nextH);
         mipLevels.push_back(std::move(next));
     }
 }
@@ -329,7 +326,7 @@ int TerrainOsc::chooseMipLevel() const noexcept
     const auto& activeMips = sharedTerrain ? sharedTerrain->mipLevels : mipLevels;
     const int activeWidth = sharedTerrain ? sharedTerrain->width : width;
     const int activeHeight = sharedTerrain ? sharedTerrain->height : height;
-    if (params.quality == Quality::Off || activeMips.size() <= 1)
+    if (params.quality == Quality::Off || activeMips.empty())
         return 0;
 
     const float radius = juce::jmax(params.radiusX, params.radiusY) * juce::jmax(0.25f, params.pathSize);
@@ -342,7 +339,7 @@ int TerrainOsc::chooseMipLevel() const noexcept
     if (params.quality == Quality::Soft)
         targetLevel += 1.f;
 
-    return juce::jlimit(0, (int)activeMips.size() - 1, juce::roundToInt(targetLevel));
+    return juce::jlimit(0, (int)activeMips.size(), juce::roundToInt(targetLevel));
 }
 
 float TerrainOsc::sampleTerrain(const std::vector<float>& data, int dataWidth, int dataHeight, float x, float y) const
