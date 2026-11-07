@@ -2,9 +2,6 @@
 
 **A stripped-down [GLIESE 710](https://github.com/deastrobooking/GLIESE_710) voice as a Eurorack module, running on ESP32-S3.**
 
-Scalar ports the GLIESE 710 synthesis engines out of the JUCE plugin and onto
-embedded hardware. Like Mutable Instruments Plaits, it is a *macro-voice*: six
-engines are compiled in, one is active at a time, selected from the panel.
 
 | Engine | Source |
 |---|---|
